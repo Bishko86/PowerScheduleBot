@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "outDir": "./dist",       /* Where the build goes */
+    "rootDir": "./",          /* Where your source code is */
+    "strict": true,           /* Better error checking */
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
