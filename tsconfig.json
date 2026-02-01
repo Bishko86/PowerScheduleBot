@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "ES2022",
     "module": "NodeNext",
     "outDir": "./dist",       /* Where the build goes */
     "rootDir": "./",          /* Where your source code is */

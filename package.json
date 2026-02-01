@@ -2,12 +2,14 @@
   "name": "lviv-power-bot",
   "version": "1.0.0",
   "description": "Telegram bot for tracking Lviv power outages",
-  "main": "index.ts",
+  "main": "dist/index.js",
+  "engines": { "node": "22" },
   "type": "module",
   "scripts": {
     "start": "node --loader ts-node/esm index.ts",
     "dev": "tsx watch index.ts",
     "build": "tsc",
+    "gcp-build": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

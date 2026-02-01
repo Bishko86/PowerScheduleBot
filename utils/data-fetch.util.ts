@@ -1,5 +1,11 @@
 import axios from "axios";
+import dotenv from "dotenv";
 import * as cheerio from "cheerio";
+
+dotenv.config();
+
+const TODAY_ID = 238;
+const TOMORROW_ID = 256;
 
 // --- Types & Interfaces ---
 
@@ -17,59 +23,68 @@ export interface PowerDataResult {
   tomorrow?: DayData;
 }
 
-// Define the shape of the LOE API response for internal use
-interface LoeApiResponse {
-  "hydra:member": Array<{
-    menuItems: Array<{
-      name: string;
-      rawHtml: string;
-    }>;
-  }>;
+/** * Represents the structure of a single menu item from the LOE API 
+ */
+interface MenuItem {
+  id: number;
+  name: string;
+  rawHtml: string;
+  imageUrl?: string;
 }
 
 // --- Configuration ---
 
 const API_CONFIG = {
-  url: process.env.API_URL || "",
-  timeout: 10000, // 10 seconds
+  // Base URL for menu items
+  baseUrl: process.env.API_URL_BASE || "https://api.loe.lviv.ua/api/menu_items",
+  timeout: 8000,
   headers: {
-    "User-Agent": "LvivPowerBot/1.0 (Production; Telegram Bot)",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
     Accept: "application/json",
+    Referer: "https://loe.lviv.ua/",
   },
 };
 
 // --- Logic ---
 
 /**
- * Fetches and parses power outage data from Lvivoblenergo API.
- * Returns null if the request fails or data is malformed.
+ * Fetches and parses power outage data for a specific day using its static ID.
+ * @param isToday - Boolean flag to determine which day to fetch.
  */
-export async function getLvivPowerData(): Promise<PowerDataResult | null> {
+export async function getLvivPowerData(
+  isToday: boolean,
+): Promise<PowerDataResult | null> {
   try {
-    const { data } = await axios.get<LoeApiResponse>(API_CONFIG.url, {
-      timeout: API_CONFIG.timeout,
-      headers: API_CONFIG.headers,
-    });
+    // return null;
+    const targetId = isToday ? TODAY_ID : TOMORROW_ID;
+    
+    // Fetching data from a specific static endpoint
+    const { data } = await axios.get<MenuItem>(
+      `${API_CONFIG.baseUrl}/${targetId}`,
+      {
+        timeout: API_CONFIG.timeout,
+        headers: API_CONFIG.headers,
+      },
+    );
 
-    const menuItems = data["hydra:member"]?.[0]?.menuItems;
-    if (!menuItems || !Array.isArray(menuItems)) {
-      console.warn("[Parser] API structure changed: menuItems not found.");
+    // Validate that the response contains the required HTML content
+    if (!data || !data.rawHtml) {
+      console.warn(`[Parser] API response for ID ${targetId} is empty or rawHtml is missing.`);
       return null;
     }
 
     const result: PowerDataResult = {};
+    const parsedData = parseHtmlContent(data.rawHtml);
 
-    for (const item of menuItems) {
-      const normalizedName = item.name.toLowerCase();
-
-      if (normalizedName === "today" && item.rawHtml) {
-        result.today = parseHtmlContent(item.rawHtml);
-      } else if (normalizedName === "tomorrow" && item.rawHtml) {
-        result.tomorrow = parseHtmlContent(item.rawHtml);
-      }
+    // Assign the parsed data to the correct property based on the requested day
+    if (isToday) {
+      result.today = parsedData;
+    } else {
+      result.tomorrow = parsedData;
     }
 
-    return Object.keys(result).length > 0 ? result : null;
+    return parsedData ? result : null;
   } catch (error: any) {
     console.error(`[API Error] Failed to fetch LOE data: ${error.message}`);
     return null;
@@ -77,27 +92,28 @@ export async function getLvivPowerData(): Promise<PowerDataResult | null> {
 }
 
 /**
- * Helper to extract schedule and update time from raw HTML strings.
+ * Extracts the update timestamp and group-specific schedules from raw HTML.
  */
 function parseHtmlContent(html: string): DayData {
   const $ = cheerio.load(html);
   const schedule: GroupSchedule = {};
-  let updateTime = "Час не вказано";
+  let updateTime = "Time not specified";
 
-  // Extracting the Update Time
-  // Targeting the bold text that contains the update timestamp
+  // Extract the "Information as of..." timestamp
+  // Targets the bold text inside paragraph tags
   const infoText = $("p b")
     .filter((_, el) => $(el).text().includes("станом на"))
     .text();
 
   if (infoText) {
+    // Clean up the string to keep only the date/time
     updateTime = infoText.replace(/Інформація станом на\s*/, "").trim();
   }
 
-  // Extracting Group Schedules
+  // Iterate through paragraphs to find group-specific lines
   $("p").each((_, el) => {
     const text = $(el).text().trim();
-    // Updated Regex to be more forgiving with whitespace and dots
+    // Regex matches "Група X.X" followed by their status
     const match = text.match(/^Група\s+(\d+\.\d+)\.?\s*(.*)/i);
 
     if (match) {

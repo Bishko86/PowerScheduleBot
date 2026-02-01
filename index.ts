@@ -1,6 +1,7 @@
 import { Telegraf, Markup } from "telegraf";
 import dotenv from "dotenv";
 import { getLvivPowerData } from "./utils/data-fetch.util.js";
+import { stat } from "node:fs";
 
 dotenv.config();
 
@@ -25,7 +26,7 @@ const UI_TEXT = {
   selectDay: (group: string) =>
     `Ви обрали групу **${group}**. На який день показати графік?`,
   noData:
-    "🔴 Дані на цей день ще не оприлюднені або сайт обленерго недоступний.",
+    "🟡 Дані на цей день ще не оприлюднені або сайт обленерго недоступний.",
   error: "⚠️ Сталася помилка при отриманні даних. Спробуйте пізніше.",
   refreshing: "Оновлюю дані... 🔄",
 };
@@ -84,25 +85,38 @@ bot.action(/date_(.+)_(.+)/, async (ctx) => {
   try {
     await ctx.answerCbQuery(UI_TEXT.refreshing);
 
-    const allData = await getLvivPowerData();
-    if (!allData || !allData[day]) {
-      return ctx.reply(UI_TEXT.noData);
+    const isToday = day === "today";
+
+    const allData = await getLvivPowerData(isToday);
+
+    const dayData = allData?.[day];
+    const status = dayData?.schedule?.[group];
+    let statusText = "";
+
+    if (!status) {
+      statusText = UI_TEXT.noData;
+    } else {
+      const statusEmoji = status.includes("Електроенергія є") ? "🟢" : "🔴";
+      statusText = `${statusEmoji} ${status}`;
     }
 
-    const dayData = allData[day]!;
-    const status = dayData.schedule[group] || "Інформація відсутня";
-    const statusEmoji = status.includes("є") ? "🟢" : "🔴";
-    const checkTime = new Date().toLocaleTimeString("uk-UA", {
+    // Use the correct IANA zone name and call .format(new Date())
+    const checkTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
+      timeZone: "Europe/Kyiv", // use Europe/Kyiv (not Europe/Kiev)
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
     });
+    const checkTime = checkTimeFormatter.format(new Date());
+    const powerData = dayData?.updateTime
+      ? `🕒 _Дані: ${dayData.updateTime}_\n`
+      : "";
 
     const message =
-      `📅 **Графік: ${day === "today" ? "Сьогодні" : "Завтра"}**\n` +
+      `📅 **Графік: ${isToday ? "Сьогодні" : "Завтра"}**\n` +
       `👥 **Група: ${group}**\n\n` +
-      `${statusEmoji} ${status}\n\n` +
-      `🕒 _Дані: ${dayData.updateTime}_\n` +
+      `${statusText}\n\n` +
+      `${powerData}` +
       `♻️ _Перевірено: ${checkTime}_`;
 
     await ctx.editMessageText(message, {
@@ -116,7 +130,10 @@ bot.action(/date_(.+)_(.+)/, async (ctx) => {
       `[Error] Fetch failed for user ${ctx.from?.id}:`,
       error.message,
     );
-    return ctx.reply(UI_TEXT.error);
+    await ctx.editMessageText(UI_TEXT.error, {
+      parse_mode: "Markdown",
+      ...Keyboards.refreshResult(group, day),
+    });
   }
 });
 
@@ -128,10 +145,29 @@ bot.action("back_to_groups", (ctx) => {
 });
 
 // --- Production Launch ---
+// ---Uncomment below to run the bot in a standalone mode
 bot
   .launch()
   .then(() => console.log("Lviv Power Bot is live! 🚀"))
   .catch((err) => console.error("Critical Launch Error:", err));
+
+// --- Exported Handler for Serverless Environments ---
+
+// export const telegramBot = async (req: any, res: any) => {
+//   // 1. Ensure we only process POST requests from Telegram
+//   if (req.method !== 'POST') {
+//     return res.status(403).send('Forbidden');
+//   }
+
+//   try {
+//     // 2. Telegraf processes the body of the request
+//     await bot.handleUpdate(req.body, res);
+//   } catch (err) {
+//     console.error("Error processing update:", err);
+//     // Always return a 200 or 500 so Telegram knows the attempt is finished
+//     res.status(500).send("Internal Error");
+//   }
+// };
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
