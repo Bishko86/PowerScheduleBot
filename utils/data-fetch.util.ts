@@ -1,8 +1,5 @@
 import axios from "axios";
-import dotenv from "dotenv";
 import * as cheerio from "cheerio";
-
-dotenv.config();
 
 const TODAY_ID = 238;
 const TOMORROW_ID = 256;
@@ -23,20 +20,15 @@ export interface PowerDataResult {
   tomorrow?: DayData;
 }
 
-/** * Represents the structure of a single menu item from the LOE API 
+/** * Represents the structure of a single menu item from the LOE API
  */
 interface MenuItem {
-  id: number;
-  name: string;
   rawHtml: string;
-  imageUrl?: string;
 }
 
 // --- Configuration ---
 
 const API_CONFIG = {
-  // Base URL for menu items
-  baseUrl: process.env.API_URL_BASE || "https://api.loe.lviv.ua/api/menu_items",
   timeout: 8000,
   headers: {
     "User-Agent":
@@ -53,38 +45,24 @@ const API_CONFIG = {
  * @param isToday - Boolean flag to determine which day to fetch.
  */
 export async function getLvivPowerData(
-  isToday: boolean,
-): Promise<PowerDataResult | null> {
+  day: "today" | "tomorrow",
+): Promise<DayData | null> {
   try {
-    // return null;
-    const targetId = isToday ? TODAY_ID : TOMORROW_ID;
-    
-    // Fetching data from a specific static endpoint
+    const targetId = day === "today" ? TODAY_ID : TOMORROW_ID;
+
     const { data } = await axios.get<MenuItem>(
-      `${API_CONFIG.baseUrl}/${targetId}`,
-      {
-        timeout: API_CONFIG.timeout,
-        headers: API_CONFIG.headers,
-      },
+      `${process.env.API_URL}/${targetId}`,
+      { timeout: API_CONFIG.timeout, headers: API_CONFIG.headers },
     );
 
-    // Validate that the response contains the required HTML content
-    if (!data || !data.rawHtml) {
-      console.warn(`[Parser] API response for ID ${targetId} is empty or rawHtml is missing.`);
+    if (!data?.rawHtml) {
+      console.warn(
+        `[Parser] API response for ID ${targetId} is empty or rawHtml is missing.`,
+      );
       return null;
     }
 
-    const result: PowerDataResult = {};
-    const parsedData = parseHtmlContent(data.rawHtml);
-
-    // Assign the parsed data to the correct property based on the requested day
-    if (isToday) {
-      result.today = parsedData;
-    } else {
-      result.tomorrow = parsedData;
-    }
-
-    return parsedData ? result : null;
+    return parseHtmlContent(data.rawHtml);
   } catch (error: any) {
     console.error(`[API Error] Failed to fetch LOE data: ${error.message}`);
     return null;

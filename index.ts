@@ -1,62 +1,18 @@
-import { Telegraf, Markup } from "telegraf";
 import dotenv from "dotenv";
-import { getLvivPowerData } from "./utils/data-fetch.util.js";
-import { stat } from "node:fs";
-
 dotenv.config();
+
+import { Telegraf } from "telegraf";
+import { getLvivPowerData } from "./utils/data-fetch.util.js";
+import { buildScheduleMessage } from "./utils/schedule-message-builder.util.js";
+import { Keyboards } from "./consts/keyboard-markup.const.js";
+import { UI_TEXT } from "./consts/ui-text.const.js";
 
 // --- Configuration & Constants ---
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN is missing in .env");
 
+
 const bot = new Telegraf(BOT_TOKEN);
-
-const POWER_GROUPS = [
-  ["1.1", "1.2"],
-  ["2.1", "2.2"],
-  ["3.1", "3.2"],
-  ["4.1", "4.2"],
-  ["5.1", "5.2"],
-  ["6.1", "6.2"],
-];
-
-const UI_TEXT = {
-  welcome:
-    "👋 Вітаємо! Я допоможу вам швидко перевірити графік відключень.\n\n**Виберіть свою групу:**",
-  selectDay: (group: string) =>
-    `Ви обрали групу **${group}**. На який день показати графік?`,
-  noData:
-    "🟡 Дані на цей день ще не оприлюднені або сайт обленерго недоступний.",
-  error: "⚠️ Сталася помилка при отриманні даних. Спробуйте пізніше.",
-  refreshing: "Оновлюю дані... 🔄",
-};
-
-// --- Keyboard Factories ---
-const Keyboards = {
-  mainMenu: () =>
-    Markup.inlineKeyboard(
-      POWER_GROUPS.map((pair) =>
-        pair.map((g) => Markup.button.callback(`Група ${g}`, `select_${g}`)),
-      ),
-    ),
-  daySelection: (group: string) =>
-    Markup.inlineKeyboard([
-      [
-        Markup.button.callback("Сьогодні", `date_${group}_today`),
-        Markup.button.callback("Завтра", `date_${group}_tomorrow`),
-      ],
-      [Markup.button.callback("⬅️ Назад до груп", "back_to_groups")],
-    ]),
-  refreshResult: (group: string, day: string) =>
-    Markup.inlineKeyboard([
-      [Markup.button.callback("🔄 Оновити", `date_${group}_${day}`)],
-      [
-        Markup.button.callback("Сьогодні", `date_${group}_today`),
-        Markup.button.callback("Завтра", `date_${group}_tomorrow`),
-      ],
-      [Markup.button.callback("⬅️ Назад", "back_to_groups")],
-    ]),
-};
 
 // --- Action Handlers ---
 
@@ -78,46 +34,15 @@ bot.action(/select_(.+)/, (ctx) => {
   });
 });
 
-bot.action(/date_(.+)_(.+)/, async (ctx) => {
+bot.action(/date_([\d.]+)_(today|tomorrow)/, async (ctx) => {
   const group = ctx.match[1];
   const day = ctx.match[2] as "today" | "tomorrow";
 
   try {
     await ctx.answerCbQuery(UI_TEXT.refreshing);
-
-    const isToday = day === "today";
-
-    const allData = await getLvivPowerData(isToday);
-
-    const dayData = allData?.[day];
-    const status = dayData?.schedule?.[group];
-    let statusText = "";
-
-    if (!status) {
-      statusText = UI_TEXT.noData;
-    } else {
-      const statusEmoji = status.includes("Електроенергія є") ? "🟢" : "🔴";
-      statusText = `${statusEmoji} ${status}`;
-    }
-
-    // Use the correct IANA zone name and call .format(new Date())
-    const checkTimeFormatter = new Intl.DateTimeFormat("uk-UA", {
-      timeZone: "Europe/Kyiv", // use Europe/Kyiv (not Europe/Kiev)
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    const checkTime = checkTimeFormatter.format(new Date());
-    const powerData = dayData?.updateTime
-      ? `🕒 _Дані: ${dayData.updateTime}_\n`
-      : "";
-
-    const message =
-      `📅 **Графік: ${isToday ? "Сьогодні" : "Завтра"}**\n` +
-      `👥 **Група: ${group}**\n\n` +
-      `${statusText}\n\n` +
-      `${powerData}` +
-      `♻️ _Перевірено: ${checkTime}_`;
+    const allData = await getLvivPowerData(day);
+    
+    const message = buildScheduleMessage(group, day, allData);
 
     await ctx.editMessageText(message, {
       parse_mode: "Markdown",
@@ -125,7 +50,6 @@ bot.action(/date_(.+)_(.+)/, async (ctx) => {
     });
   } catch (error: any) {
     if (error.description?.includes("message is not modified")) return;
-
     console.error(
       `[Error] Fetch failed for user ${ctx.from?.id}:`,
       error.message,
@@ -152,6 +76,7 @@ bot
   .catch((err) => console.error("Critical Launch Error:", err));
 
 // --- Exported Handler for Serverless Environments ---
+// --- Uncomment below to use in serverless functions like AWS Lambda or Google Cloud Functions
 
 // export const telegramBot = async (req: any, res: any) => {
 //   // 1. Ensure we only process POST requests from Telegram
