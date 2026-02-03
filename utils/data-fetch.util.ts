@@ -28,6 +28,8 @@ interface MenuItem {
 
 // --- Configuration ---
 
+const API_URL = "https://api.loe.lviv.ua/api/menu_items";
+
 const API_CONFIG = {
   timeout: 8000,
   headers: {
@@ -50,10 +52,10 @@ export async function getLvivPowerData(
   try {
     const targetId = day === "today" ? TODAY_ID : TOMORROW_ID;
 
-    const { data } = await axios.get<MenuItem>(
-      `${process.env.API_URL}/${targetId}`,
-      { timeout: API_CONFIG.timeout, headers: API_CONFIG.headers },
-    );
+    const { data } = await axios.get<MenuItem>(`${API_URL}/${targetId}`, {
+      timeout: API_CONFIG.timeout,
+      headers: API_CONFIG.headers,
+    });
 
     if (!data?.rawHtml) {
       console.warn(
